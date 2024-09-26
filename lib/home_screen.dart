@@ -110,111 +110,166 @@ class _HomeScreenState extends State<HomeScreen> {
         : "document.getElementById('footer').style.display = 'block';";
   }
 
+  Future<bool?> _showBackDialog() {
+    return showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Are you sure?'),
+          content: const Text(
+            'Are you sure you want to leave this page?',
+          ),
+          actions: <Widget>[
+            TextButton(
+              style: TextButton.styleFrom(
+                textStyle: Theme.of(context).textTheme.labelLarge,
+              ),
+              child: const Text('Nevermind'),
+              onPressed: () {
+                Navigator.pop(context, false);
+              },
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                textStyle: Theme.of(context).textTheme.labelLarge,
+              ),
+              child: const Text('Leave'),
+              onPressed: () {
+                Navigator.pop(context, true);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: isOffline
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.cloud_off, size: 100, color: Colors.grey),
-                    const SizedBox(height: 20),
-                    const Text(
-                      "No Internet Connection",
-                      style: TextStyle(fontSize: 20, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 20),
-                    ElevatedButton(
-                      onPressed: () async {
-                        await checkInternetConnection(); // Recheck the connection
-                        if (!isOffline) {
-                          webViewController?.reload(); // Reload if back online
-                        } else {
-                          // Show a SnackBar with an error message
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: const Text(
-                                  "No internet connection. Please check your network settings."),
-                              action: SnackBarAction(
-                                label: 'Open Settings',
-                                onPressed: () async {
-                                  switch (OpenSettingsPlus.shared) {
-                                    case OpenSettingsPlusAndroid settings:
-                                      settings.wifi();
-                                    case OpenSettingsPlusIOS settings:
-                                      settings.wifi();
-                                  }
-                                  ;
-                                },
+      body: PopScope<Object?>(
+        canPop: false,
+        onPopInvokedWithResult: (bool didPop, Object? result) async {
+          if (didPop) {
+            return;
+          }
+          // Check if WebView can go back
+          if (await webViewController!.canGoBack()) {
+            webViewController!.goBack();
+          } else {
+            // If WebView can't go back, show the dialog
+            final bool shouldPop = await _showBackDialog() ?? false;
+            if (context.mounted && shouldPop) {
+              Navigator.pop(context);
+            }
+          }
+        },
+        child: SafeArea(
+          child: isOffline
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.cloud_off,
+                          size: 100, color: Colors.grey),
+                      const SizedBox(height: 20),
+                      const Text(
+                        "No Internet Connection",
+                        style: TextStyle(fontSize: 20, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 20),
+                      ElevatedButton(
+                        onPressed: () async {
+                          await checkInternetConnection(); // Recheck the connection
+                          if (!isOffline) {
+                            webViewController
+                                ?.reload(); // Reload if back online
+                          } else {
+                            // Show a SnackBar with an error message
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text(
+                                    "No internet connection. Please check your network settings."),
+                                action: SnackBarAction(
+                                  label: 'Open Settings',
+                                  onPressed: () async {
+                                    switch (OpenSettingsPlus.shared) {
+                                      case OpenSettingsPlusAndroid settings:
+                                        settings.wifi();
+                                      case OpenSettingsPlusIOS settings:
+                                        settings.wifi();
+                                    }
+                                  },
+                                ),
                               ),
-                            ),
-                          );
+                            );
+                          }
+                        },
+                        child: const Text("Try Again"),
+                      ),
+                    ],
+                  ),
+                )
+
+              //
+              : Stack(
+                  children: <Widget>[
+                    InAppWebView(
+                      key: webViewKey,
+                      initialUrlRequest:
+                          URLRequest(url: WebUri(_tabs[_currentIndex])),
+                      initialSettings: settings,
+                      pullToRefreshController: pullToRefreshController,
+                      onWebViewCreated: (controller) {
+                        webViewController = controller;
+                      },
+                      onPermissionRequest: (controller, request) async {
+                        return PermissionResponse(
+                          resources: request.resources,
+                          action: PermissionResponseAction.GRANT,
+                        );
+                      },
+                      onLoadStart: (controller, url) async {
+                        setState(() {
+                          progress = 0;
+                        });
+                        await controller.evaluateJavascript(
+                            source: footerScript);
+                      },
+                      onLoadStop: (controller, url) async {
+                        await controller.evaluateJavascript(
+                            source: footerScript);
+                        pullToRefreshController?.endRefreshing();
+                        setState(() {
+                          progress = 1.0;
+                        });
+                      },
+                      onReceivedError: (controller, request, error) {
+                        pullToRefreshController?.endRefreshing();
+                        setState(() {
+                          isOffline = true;
+                        });
+                      },
+                      onProgressChanged: (controller, progress) {
+                        setState(() {
+                          this.progress = progress / 100;
+                        });
+                        if (progress > 50) {
+                          controller.evaluateJavascript(source: footerScript);
                         }
                       },
-                      child: const Text("Try Again"),
                     ),
+                    progress < 1.0
+                        ? LinearProgressIndicator(
+                            value: progress,
+                            backgroundColor: Colors.orange,
+                          )
+                        : !isOffline
+                            ? Container()
+                            : const LinearProgressIndicator(),
                   ],
                 ),
-              )
-
-            //
-            : Stack(
-                children: <Widget>[
-                  InAppWebView(
-                    key: webViewKey,
-                    initialUrlRequest:
-                        URLRequest(url: WebUri(_tabs[_currentIndex])),
-                    initialSettings: settings,
-                    pullToRefreshController: pullToRefreshController,
-                    onWebViewCreated: (controller) {
-                      webViewController = controller;
-                    },
-                    onPermissionRequest: (controller, request) async {
-                      return PermissionResponse(
-                        resources: request.resources,
-                        action: PermissionResponseAction.GRANT,
-                      );
-                    },
-                    onLoadStart: (controller, url) async {
-                      setState(() {
-                        progress = 0;
-                      });
-                      await controller.evaluateJavascript(source: footerScript);
-                    },
-                    onLoadStop: (controller, url) async {
-                      await controller.evaluateJavascript(source: footerScript);
-                      pullToRefreshController?.endRefreshing();
-                      setState(() {
-                        progress = 1.0;
-                      });
-                    },
-                    onReceivedError: (controller, request, error) {
-                      pullToRefreshController?.endRefreshing();
-                      setState(() {
-                        isOffline = true;
-                      });
-                    },
-                    onProgressChanged: (controller, progress) {
-                      setState(() {
-                        this.progress = progress / 100;
-                      });
-                      if (progress > 50) {
-                        controller.evaluateJavascript(source: footerScript);
-                      }
-                    },
-                  ),
-                  progress < 1.0
-                      ? LinearProgressIndicator(
-                          value: progress,
-                          backgroundColor: Colors.orange,
-                        )
-                      : !isOffline
-                          ? Container()
-                          : const LinearProgressIndicator(),
-                ],
-              ),
+        ),
       ),
       // Bottom Navigation Bar
       bottomNavigationBar: BottomNavigationBar(
