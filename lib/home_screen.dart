@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:open_settings_plus/core/open_settings_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,7 +15,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  bool hideFooter = true; // Control footer visibility
+
   final GlobalKey webViewKey = GlobalKey();
+
   InAppWebViewController? webViewController;
 
   InAppWebViewSettings settings = InAppWebViewSettings(
@@ -28,7 +33,6 @@ class _HomeScreenState extends State<HomeScreen> {
   PullToRefreshController? pullToRefreshController;
   double progress = 0;
   bool isOffline = false; // Track internet status
-  bool hideFooter = true; // Control footer visibility
 
   // Index to track the current tab selected
   int _currentIndex = 0;
@@ -124,7 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextButton.styleFrom(
                 textStyle: Theme.of(context).textTheme.labelLarge,
               ),
-              child: const Text('Nevermind'),
+              child: const Text('Never mind'),
               onPressed: () {
                 Navigator.pop(context, false);
               },
@@ -213,7 +217,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
               //
               : Stack(
-                  children: <Widget>[
+                  children: [
+                    //
                     InAppWebView(
                       key: webViewKey,
                       initialUrlRequest:
@@ -244,11 +249,29 @@ class _HomeScreenState extends State<HomeScreen> {
                           progress = 1.0;
                         });
                       },
+                      shouldOverrideUrlLoading:
+                          (controller, navigationAction) async {
+                        final uri = navigationAction.request.url!;
+
+                        // Check if the link is external (e.g.,tel, mailto)
+                        if (uri.scheme == "tel" || uri.scheme == "mailto") {
+                          // Launch external links using an external application
+                          await launchUrl(uri);
+
+                          // Prevent the WebView from loading the URL
+                          return NavigationActionPolicy.CANCEL;
+                        }
+
+                        // Allow the WebView to load internal links
+                        return NavigationActionPolicy.ALLOW;
+                      },
                       onReceivedError: (controller, request, error) {
                         pullToRefreshController?.endRefreshing();
-                        setState(() {
-                          isOffline = true;
-                        });
+
+                        //
+                        // setState(() {
+                        //   isOffline = true;
+                        // });
                       },
                       onProgressChanged: (controller, progress) {
                         setState(() {
@@ -259,14 +282,33 @@ class _HomeScreenState extends State<HomeScreen> {
                         }
                       },
                     ),
+
+                    //
                     progress < 1.0
-                        ? LinearProgressIndicator(
-                            value: progress,
-                            backgroundColor: Colors.orange,
+                        ? Center(
+                            child: LoadingAnimationWidget.inkDrop(
+                              size: 50,
+                              color: Colors.orange,
+                            ),
                           )
                         : !isOffline
                             ? Container()
-                            : const LinearProgressIndicator(),
+                            : Center(
+                                child: LoadingAnimationWidget.beat(
+                                  size: 50,
+                                  color: Colors.orange,
+                                ),
+                              ),
+
+                    //
+                    // progress < 1.0
+                    //     ? LinearProgressIndicator(
+                    //         value: progress,
+                    //         backgroundColor: Colors.orange,
+                    //       )
+                    //     : !isOffline
+                    //         ? Container()
+                    //         : const LinearProgressIndicator(),
                   ],
                 ),
         ),
